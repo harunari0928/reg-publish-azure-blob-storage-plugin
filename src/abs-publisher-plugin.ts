@@ -1,11 +1,16 @@
 import { streamToBuffer } from '@/utils';
 import { DefaultAzureCredential } from '@azure/identity';
 import {
+  AccountSASPermissions,
+  AccountSASResourceTypes,
+  AccountSASServices,
   BlobItem,
   BlobServiceClient,
   ContainerClient,
+  SASProtocol,
   StoragePipelineOptions,
   StorageSharedKeyCredential,
+  generateAccountSASQueryParameters,
 } from '@azure/storage-blob';
 import * as fs from 'fs/promises';
 import * as mimetics from 'mimetics';
@@ -29,6 +34,7 @@ export interface PluginConfig {
   useDefaultCredential: boolean;
   accountName?: string;
   accountKey?: string;
+  sasExpiryHour?: number;
   options?: StoragePipelineOptions;
   pattern?: string;
   pathPrefix?: string;
@@ -51,10 +57,7 @@ export class AbsPublisherPlugin
     this.pluginConfig = config.options;
     const credential = this.pluginConfig.useDefaultCredential
       ? new DefaultAzureCredential()
-      : new StorageSharedKeyCredential(
-          this.pluginConfig.accountName,
-          this.pluginConfig.accountKey
-        );
+      : this.createSharedKeyCredential();
     const blobServiceClient = new BlobServiceClient(
       this.pluginConfig.url,
       credential,
@@ -76,7 +79,7 @@ export class AbsPublisherPlugin
       indexFile &&
       `${this.pluginConfig.url}/${
         this.pluginConfig.containerName
-      }/${this.resolveInBucket(key)}/${indexFile.path}`;
+      }/${this.resolveInBucket(key)}/${indexFile.path}${this.createAccountSas() ?? ''}`;
     return { reportUrl };
   }
 
@@ -157,5 +160,34 @@ export class AbsPublisherPlugin
   }
   protected getBucketRootDir(): string | undefined {
     return this.pluginConfig.pathPrefix;
+  }
+
+  private createSharedKeyCredential(): StorageSharedKeyCredential | undefined {
+    const { accountName, accountKey } = this.pluginConfig
+    if (accountName === undefined || accountKey === undefined) {
+      return;      
+    }
+    return new StorageSharedKeyCredential(accountName, accountKey);
+  }
+
+  private createAccountSas(): string | undefined {
+    const { useDefaultCredential, sasExpiryHour } = this.pluginConfig;
+    const sharedKeyCredential = this.createSharedKeyCredential();
+    if (useDefaultCredential || !sharedKeyCredential || !sasExpiryHour) {
+      return;
+    }
+    const sasOptions = {
+        services: AccountSASServices.parse('b').toString(),
+        resourceTypes: AccountSASResourceTypes.parse('co').toString(),
+        permissions: AccountSASPermissions.parse('r'),
+        protocol: SASProtocol.Https,
+        startsOn: new Date(),
+        expiresOn: new Date(new Date().valueOf() + (sasExpiryHour * 60 * 60 * 1000)),
+    };
+    const sasToken = generateAccountSASQueryParameters(
+        sasOptions,
+        sharedKeyCredential,
+    ).toString();
+    return (sasToken[0] === '?') ? sasToken : `?${sasToken}`;
   }
 }

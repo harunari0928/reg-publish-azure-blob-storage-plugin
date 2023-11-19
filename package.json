@@ -1,5 +1,5 @@
 {
-  "name": "@yukonsky/reg-publish-azure-blob-storage-plugin",
+  "name": "@harunari0928/reg-publish-azure-blob-storage-plugin",
   "version": "0.12.11",
   "description": "reg-suit Azure Blob Storage plugin",
   "main": "lib/index.js",
@@ -17,13 +17,17 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/yukonsky/reg-publish-azure-blob-storage-plugin.git"
+    "url": "https://github.com/harunari0928/reg-publish-azure-blob-storage-plugin.git"
   },
-  "author": "yukonsky",
+  "author": "harunari0928",
   "contributors": [
     {
       "name": "Yoshio Miyamae",
       "email": "miyamae@yukon-sky.jp"
+    },
+    {
+      "name": "Ryoya Osaki",
+      "email": "ryo13579978@gmail.com"
     }
   ],
   "license": "MIT",

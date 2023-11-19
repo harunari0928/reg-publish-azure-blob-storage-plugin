@@ -103,11 +103,15 @@ export class AbsPublisherPlugin
 
     setInterval(() => {
       const sas = sessionStorage.getItem(sessionKey) ?? '';
-      if (!hasSas(window.location.search)) {
-        if (window.location.search === '') {
-          history.replaceState(null, '', window.location + sas);
-        } else {
+      if (!hasSas(window.location.href)) {
+        if (window.location.search === '' && window.location.hash === '') {
+          history.replaceState(null, '', window.location.href + sas);
+        } else if (window.location.search === '' && window.location.hash !== '') {
+          history.replaceState(null, '', window.location.pathname + sas + window.location.hash);
+        } else if (window.location.search !== '' && window.location.hash === '') {
           history.replaceState(null, '', window.location.href + '&' + sas.slice(1));
+        } else {
+          history.replaceState(null, '', window.location.pathname + window.location.search + '&' + sas.slice(1) + window.location.hash);
         }
       }
 

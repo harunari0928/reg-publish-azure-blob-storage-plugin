@@ -75,12 +75,73 @@ export class AbsPublisherPlugin
 
   async publish(key: string): Promise<PublishResult> {
     const { indexFile } = await this.publishInternal(key);
+    if (this.pluginConfig.sasExpiryHour !== undefined) {
+      await this.addAuthScript(indexFile, key);
+    }    
+    
     const reportUrl =
-      indexFile &&
-      `${this.pluginConfig.url}/${
-        this.pluginConfig.containerName
-      }/${this.resolveInBucket(key)}/${indexFile.path}${this.createAccountSas() ?? ''}`;
+    indexFile &&
+    `${this.pluginConfig.url}/${
+      this.pluginConfig.containerName
+    }/${this.resolveInBucket(key)}/${indexFile.path}${this.createAccountSas() ?? ''}`;
+
     return { reportUrl };
+  }
+
+  private async addAuthScript(indexFile: FileItem, key: string) {
+    const content = (await fs.readFile(indexFile.absPath)).toString();
+    const insertPos = content.indexOf('<body>') + '<body>'.length;
+    const additionalScript = `
+  <script lang="text/javascript">
+    const hasSas = (searchStr) => {
+      return searchStr.includes('spr=http');
+    };
+    const sessionKey = 'currentVRTBlobSas';
+    if (hasSas(window.location.search)) {
+      sessionStorage.setItem(sessionKey, window.location.search);    
+    }
+
+    setInterval(() => {
+      const sas = sessionStorage.getItem(sessionKey) ?? '';
+      if (!hasSas(window.location.search)) {
+        if (window.location.search === '') {
+          history.replaceState(null, '', window.location + sas);
+        } else {
+          history.replaceState(null, '', window.location.href + '&' + sas.slice(1));
+        }
+      }
+
+      for (const img of document.querySelectorAll('img')) {
+          if (!hasSas(img.src)) {
+              img.src += sas;
+          }
+      }
+      for (const a of document.querySelectorAll('a')) {
+          if (a.href.startsWith('#')) {
+              continue;
+          }
+          if (!hasSas(a.href)) {
+              a.href += '&' + sas.slice(1);        
+          }
+      }
+    }, 100);
+  </script>
+  `;
+    const modifiedContent = content.slice(0, insertPos) + additionalScript + content.slice(insertPos);
+    this.logger.verbose(`Modified index.html:\n${modifiedContent}`);
+    await fs.writeFile(indexFile.absPath, modifiedContent);
+    const data = Buffer.from(modifiedContent);
+    await this.containerClient.uploadBlockBlob(
+      `${key}/${indexFile.path}`,
+      data,
+      data.length,
+      {
+        blobHTTPHeaders: {
+          blobContentType: indexFile.mimeType,
+        },
+      }
+    );
+    this.logger.verbose(`Uploaded from ${indexFile.absPath} to ${key}/${indexFile.path}`);
   }
 
   protected async uploadItem(key: string, item: FileItem): Promise<FileItem> {

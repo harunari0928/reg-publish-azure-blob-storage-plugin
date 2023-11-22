@@ -1,6 +1,6 @@
 {
   "name": "reg-publish-azure-blob-storage-plugin-compatible-with-sas",
-  "version": "0.12.12",
+  "version": "0.12.13",
   "description": "reg-suit Azure Blob Storage plugin",
   "main": "lib/index.js",
   "files": [
@@ -44,6 +44,7 @@
     "@types/glob": "^8.1.0",
     "@types/node": "^20.8.3",
     "@types/uuid": "^9.0.5",
+    "@types/serviceworker": "0.0.76",
     "@typescript-eslint/eslint-plugin": "^6.7.4",
     "@typescript-eslint/parser": "^6.7.4",
     "dotenv": "^16.3.1",

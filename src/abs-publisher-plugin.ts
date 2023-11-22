@@ -93,44 +93,8 @@ export class AbsPublisherPlugin
     const insertPos = content.indexOf('<body>') + '<body>'.length;
     const additionalScript = `
   <script lang="text/javascript">
-    const hasSas = (searchStr) => {
-      return searchStr.includes('spr=http');
-    };
-    const sessionKey = 'currentVRTBlobSas';
-    if (hasSas(window.location.search)) {
-      sessionStorage.setItem(sessionKey, window.location.search);    
-    }
-
-    setInterval(() => {
-      const sas = sessionStorage.getItem(sessionKey) ?? '';
-      if (!hasSas(window.location.href)) {
-        if (window.location.search === '' && window.location.hash === '') {
-          history.replaceState(null, '', window.location.href + sas);
-        } else if (window.location.search === '' && window.location.hash !== '') {
-          history.replaceState(null, '', window.location.pathname + sas + window.location.hash);
-        } else if (window.location.search !== '' && window.location.hash === '') {
-          history.replaceState(null, '', window.location.href + '&' + sas.slice(1));
-        } else {
-          history.replaceState(null, '', window.location.pathname + window.location.search + '&' + sas.slice(1) + window.location.hash);
-        }
-      }
-
-      for (const img of document.querySelectorAll('img')) {
-          if (!hasSas(img.src)) {
-              img.src += sas;
-          }
-      }
-      for (const a of document.querySelectorAll('a')) {
-          if (a.href.startsWith('#')) {
-              continue;
-          }
-          if (!hasSas(a.href)) {
-              a.href += '&' + sas.slice(1);        
-          }
-      }
-    }, 100);
-  </script>
-  `;
+    ${(await fs.readFile(path.join(__dirname, 'helpers', 'sas', 'sasHelper.js')))}
+  </script>`;
     const modifiedContent = content.slice(0, insertPos) + additionalScript + content.slice(insertPos);
     this.logger.verbose(`Modified index.html:\n${modifiedContent}`);
     await fs.writeFile(indexFile.absPath, modifiedContent);
@@ -142,6 +106,18 @@ export class AbsPublisherPlugin
       {
         blobHTTPHeaders: {
           blobContentType: indexFile.mimeType,
+        },
+      }
+    );
+    const serviceWorkerFile = await fs.readFile(path.join(__dirname, 'helpers', 'sas', 'appendSas.js'))
+    await this.containerClient
+    .uploadBlockBlob(
+      `${key}/appendSas.js`,
+      serviceWorkerFile,
+      serviceWorkerFile.length,
+      {
+        blobHTTPHeaders: {
+          blobContentType: 'text/javascript',
         },
       }
     );

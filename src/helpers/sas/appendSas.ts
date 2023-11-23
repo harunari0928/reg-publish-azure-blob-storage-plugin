@@ -1,6 +1,9 @@
 self.addEventListener('fetch', async (event) => {
   const sas = self.location.search;
-  if (`${event.request.url}`.includes('/index.html') || `${event.request.url}`.includes('/appendSas.js')) {
+  if (
+    `${event.request.url}`.includes('/index.html') ||
+    `${event.request.url}`.includes('/appendSas.js')
+  ) {
     return;
   }
   event.respondWith(fetch(`${event.request.url}${sas}`));

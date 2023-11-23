@@ -1,16 +1,16 @@
 import { streamToBuffer } from '@/utils';
 import { DefaultAzureCredential } from '@azure/identity';
 import {
-  AccountSASPermissions,
   AccountSASResourceTypes,
   AccountSASServices,
   BlobItem,
+  BlobSASPermissions,
   BlobServiceClient,
   ContainerClient,
   SASProtocol,
   StoragePipelineOptions,
   StorageSharedKeyCredential,
-  generateAccountSASQueryParameters,
+  generateBlobSASQueryParameters
 } from '@azure/storage-blob';
 import * as fs from 'fs/promises';
 import * as mimetics from 'mimetics';
@@ -212,7 +212,7 @@ export class AbsPublisherPlugin
   }
 
   private createAccountSas(): string | undefined {
-    const { useDefaultCredential, sasExpiryHour } = this.pluginConfig;
+    const { useDefaultCredential, containerName, sasExpiryHour } = this.pluginConfig;
     const sharedKeyCredential = this.createSharedKeyCredential();
     if (useDefaultCredential || !sharedKeyCredential || !sasExpiryHour) {
       return;
@@ -220,12 +220,13 @@ export class AbsPublisherPlugin
     const sasOptions = {
         services: AccountSASServices.parse('b').toString(),
         resourceTypes: AccountSASResourceTypes.parse('co').toString(),
-        permissions: AccountSASPermissions.parse('r'),
+        permissions: BlobSASPermissions.parse('r'),
         protocol: SASProtocol.Https,
         startsOn: new Date(),
         expiresOn: new Date(new Date().valueOf() + (sasExpiryHour * 60 * 60 * 1000)),
+        containerName,
     };
-    const sasToken = generateAccountSASQueryParameters(
+    const sasToken = generateBlobSASQueryParameters(
         sasOptions,
         sharedKeyCredential,
     ).toString();

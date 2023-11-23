@@ -10,7 +10,7 @@ import {
   SASProtocol,
   StoragePipelineOptions,
   StorageSharedKeyCredential,
-  generateBlobSASQueryParameters
+  generateBlobSASQueryParameters,
 } from '@azure/storage-blob';
 import * as fs from 'fs/promises';
 import * as mimetics from 'mimetics';
@@ -48,6 +48,7 @@ export class AbsPublisherPlugin
 
   private options!: PluginCreateOptions<PluginConfig>;
   private pluginConfig!: PluginConfig;
+  private blobServiceClient: BlobServiceClient;
   private containerClient!: ContainerClient;
 
   init(config: PluginCreateOptions<PluginConfig>): void {
@@ -58,12 +59,12 @@ export class AbsPublisherPlugin
     const credential = this.pluginConfig.useDefaultCredential
       ? new DefaultAzureCredential()
       : this.createSharedKeyCredential();
-    const blobServiceClient = new BlobServiceClient(
+    this.blobServiceClient = new BlobServiceClient(
       this.pluginConfig.url,
       credential,
       this.pluginConfig.options
     );
-    this.containerClient = blobServiceClient.getContainerClient(
+    this.containerClient = this.blobServiceClient.getContainerClient(
       this.getBucketName()
     );
   }
@@ -77,13 +78,15 @@ export class AbsPublisherPlugin
     const { indexFile } = await this.publishInternal(key);
     if (this.pluginConfig.sasExpiryHour !== undefined) {
       await this.addAuthScript(indexFile, key);
-    }    
-    
+    }
+
     const reportUrl =
-    indexFile &&
-    `${this.pluginConfig.url}/${
-      this.pluginConfig.containerName
-    }/${this.resolveInBucket(key)}/${indexFile.path}${this.createAccountSas() ?? ''}`;
+      indexFile &&
+      `${this.pluginConfig.url}/${
+        this.pluginConfig.containerName
+      }/${this.resolveInBucket(key)}/${indexFile.path}${
+        (await this.createAccountSas()) ?? ''
+      }`;
 
     return { reportUrl };
   }
@@ -93,9 +96,10 @@ export class AbsPublisherPlugin
     const insertPos = content.indexOf('<body>') + '<body>'.length;
     const additionalScript = `
   <script lang="text/javascript">
-    ${(await fs.readFile(path.join(__dirname, 'helpers', 'sas', 'sasHelper.js')))}
+    ${await fs.readFile(path.join(__dirname, 'helpers', 'sas', 'sasHelper.js'))}
   </script>`;
-    const modifiedContent = content.slice(0, insertPos) + additionalScript + content.slice(insertPos);
+    const modifiedContent =
+      content.slice(0, insertPos) + additionalScript + content.slice(insertPos);
     this.logger.verbose(`Modified index.html:\n${modifiedContent}`);
     await fs.writeFile(indexFile.absPath, modifiedContent);
     const data = Buffer.from(modifiedContent);
@@ -109,9 +113,10 @@ export class AbsPublisherPlugin
         },
       }
     );
-    const serviceWorkerFile = await fs.readFile(path.join(__dirname, 'helpers', 'sas', 'appendSas.js'))
-    await this.containerClient
-    .uploadBlockBlob(
+    const serviceWorkerFile = await fs.readFile(
+      path.join(__dirname, 'helpers', 'sas', 'appendSas.js')
+    );
+    await this.containerClient.uploadBlockBlob(
       `${key}/appendSas.js`,
       serviceWorkerFile,
       serviceWorkerFile.length,
@@ -121,7 +126,9 @@ export class AbsPublisherPlugin
         },
       }
     );
-    this.logger.verbose(`Uploaded from ${indexFile.absPath} to ${key}/${indexFile.path}`);
+    this.logger.verbose(
+      `Uploaded from ${indexFile.absPath} to ${key}/${indexFile.path}`
+    );
   }
 
   protected async uploadItem(key: string, item: FileItem): Promise<FileItem> {
@@ -204,32 +211,50 @@ export class AbsPublisherPlugin
   }
 
   private createSharedKeyCredential(): StorageSharedKeyCredential | undefined {
-    const { accountName, accountKey } = this.pluginConfig
+    const { accountName, accountKey } = this.pluginConfig;
     if (accountName === undefined || accountKey === undefined) {
-      return;      
+      return;
     }
     return new StorageSharedKeyCredential(accountName, accountKey);
   }
 
-  private createAccountSas(): string | undefined {
-    const { useDefaultCredential, containerName, sasExpiryHour } = this.pluginConfig;
-    const sharedKeyCredential = this.createSharedKeyCredential();
-    if (useDefaultCredential || !sharedKeyCredential || !sasExpiryHour) {
+  private async createAccountSas(): Promise<string | undefined> {
+    const { accountName, useDefaultCredential, containerName, sasExpiryHour } =
+      this.pluginConfig;
+    if (
+      accountName === undefined ||
+      containerName === undefined ||
+      sasExpiryHour === undefined
+    ) {
       return;
     }
+
     const sasOptions = {
-        services: AccountSASServices.parse('b').toString(),
-        resourceTypes: AccountSASResourceTypes.parse('co').toString(),
-        permissions: BlobSASPermissions.parse('r'),
-        protocol: SASProtocol.Https,
-        startsOn: new Date(),
-        expiresOn: new Date(new Date().valueOf() + (sasExpiryHour * 60 * 60 * 1000)),
-        containerName,
+      services: AccountSASServices.parse('b').toString(),
+      resourceTypes: AccountSASResourceTypes.parse('co').toString(),
+      permissions: BlobSASPermissions.parse('r'),
+      protocol: SASProtocol.Https,
+      startsOn: new Date(),
+      expiresOn: new Date(
+        new Date().valueOf() + sasExpiryHour * 60 * 60 * 1000
+      ),
+      containerName,
     };
-    const sasToken = generateBlobSASQueryParameters(
+
+    if (useDefaultCredential) {
+      return generateBlobSASQueryParameters(
         sasOptions,
-        sharedKeyCredential,
+        await this.blobServiceClient.getUserDelegationKey(
+          sasOptions.startsOn,
+          sasOptions.expiresOn
+        ),
+        accountName
+      ).toString();
+    }
+
+    return generateBlobSASQueryParameters(
+      sasOptions,
+      this.createSharedKeyCredential()
     ).toString();
-    return (sasToken[0] === '?') ? sasToken : `?${sasToken}`;
   }
 }

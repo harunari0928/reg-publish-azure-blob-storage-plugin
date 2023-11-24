@@ -2,7 +2,8 @@ self.addEventListener('fetch', async (event) => {
   const sas = self.location.search;
   if (
     `${event.request.url}`.includes('/index.html') ||
-    `${event.request.url}`.includes('/appendSas.js')
+    `${event.request.url}`.includes('/sasHelper.js') ||
+    `${event.request.url}`.includes('/requestInterceptor.js')
   ) {
     return;
   }

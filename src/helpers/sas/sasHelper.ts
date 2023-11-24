@@ -1,39 +1,6 @@
 (async () => {
-  const hasSas = (searchStr: string) => {
-    const params = new URLSearchParams(searchStr);
-    return (
-      params.has('sv') &&
-      params.has('ss') &&
-      params.has('srt') &&
-      params.has('spr') &&
-      params.has('st') &&
-      params.has('se') &&
-      params.has('sp') &&
-      params.has('sig')
-    );
-  };
-  const getSas = (searchStr: string) => {
-    const params = new URLSearchParams(searchStr);
-    return (
-      '?sv=' +
-      params.get('sv') +
-      '&ss=' +
-      params.get('ss') +
-      '&srt=' +
-      params.get('srt') +
-      '&spr=' +
-      params.get('spr') +
-      '&st=' +
-      params.get('st') +
-      '&se=' +
-      params.get('se') +
-      '&sp=' +
-      params.get('sp') +
-      '&sig=' +
-      encodeURIComponent(params.get('sig'))
-    );
-  };
-  const sas = getSas(window.location.search);
+  const hasSas = (searchStr: string) => searchStr.includes('spr=https');
+  const sas = window.location.search;
   const replaceHistoryState = ({ hash, href, pathname, search }) => {
     if (hasSas(search)) {
       return;
@@ -80,7 +47,7 @@
   for (const registration of await navigator.serviceWorker.getRegistrations()) {
     registration.unregister();
   }
-  await navigator.serviceWorker.register('./appendSas.js' + sas);
+  await navigator.serviceWorker.register('./requestInterceptor.js' + sas);
 
   window.addEventListener('load', () => observeUrlChange());
 })();

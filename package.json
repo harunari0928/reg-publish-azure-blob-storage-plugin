@@ -1,6 +1,6 @@
 {
   "name": "reg-publish-azure-blob-storage-plugin-compatible-with-sas",
-  "version": "0.12.13",
+  "version": "0.12.14",
   "description": "reg-suit Azure Blob Storage plugin",
   "main": "lib/index.js",
   "files": [

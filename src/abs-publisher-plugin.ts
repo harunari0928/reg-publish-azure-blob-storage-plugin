@@ -1,12 +1,10 @@
 import { streamToBuffer } from '@/utils';
 import { DefaultAzureCredential } from '@azure/identity';
 import {
-  AccountSASResourceTypes,
-  AccountSASServices,
   BlobItem,
-  BlobSASPermissions,
   BlobServiceClient,
   ContainerClient,
+  ContainerSASPermissions,
   SASProtocol,
   StoragePipelineOptions,
   StorageSharedKeyCredential,
@@ -77,58 +75,12 @@ export class AbsPublisherPlugin
   async publish(key: string): Promise<PublishResult> {
     const { indexFile } = await this.publishInternal(key);
     if (this.pluginConfig.sasExpiryHour !== undefined) {
-      await this.addAuthScript(indexFile, key);
+      const sas = await this.createAccountSas();
+      await this.addSasHelperScripts(indexFile, key, sas);
+      return { reportUrl: this.createReportUrl(indexFile, key, sas) };
     }
 
-    const reportUrl =
-      indexFile &&
-      `${this.pluginConfig.url}/${
-        this.pluginConfig.containerName
-      }/${this.resolveInBucket(key)}/${indexFile.path}${
-        (await this.createAccountSas()) ?? ''
-      }`;
-
-    return { reportUrl };
-  }
-
-  private async addAuthScript(indexFile: FileItem, key: string) {
-    const content = (await fs.readFile(indexFile.absPath)).toString();
-    const insertPos = content.indexOf('<body>') + '<body>'.length;
-    const additionalScript = `
-  <script lang="text/javascript">
-    ${await fs.readFile(path.join(__dirname, 'helpers', 'sas', 'sasHelper.js'))}
-  </script>`;
-    const modifiedContent =
-      content.slice(0, insertPos) + additionalScript + content.slice(insertPos);
-    this.logger.verbose(`Modified index.html:\n${modifiedContent}`);
-    await fs.writeFile(indexFile.absPath, modifiedContent);
-    const data = Buffer.from(modifiedContent);
-    await this.containerClient.uploadBlockBlob(
-      `${key}/${indexFile.path}`,
-      data,
-      data.length,
-      {
-        blobHTTPHeaders: {
-          blobContentType: indexFile.mimeType,
-        },
-      }
-    );
-    const serviceWorkerFile = await fs.readFile(
-      path.join(__dirname, 'helpers', 'sas', 'appendSas.js')
-    );
-    await this.containerClient.uploadBlockBlob(
-      `${key}/appendSas.js`,
-      serviceWorkerFile,
-      serviceWorkerFile.length,
-      {
-        blobHTTPHeaders: {
-          blobContentType: 'text/javascript',
-        },
-      }
-    );
-    this.logger.verbose(
-      `Uploaded from ${indexFile.absPath} to ${key}/${indexFile.path}`
-    );
+    return { reportUrl: this.createReportUrl(indexFile, key) };
   }
 
   protected async uploadItem(key: string, item: FileItem): Promise<FileItem> {
@@ -217,7 +169,6 @@ export class AbsPublisherPlugin
     }
     return new StorageSharedKeyCredential(accountName, accountKey);
   }
-
   private async createAccountSas(): Promise<string | undefined> {
     const { accountName, useDefaultCredential, containerName, sasExpiryHour } =
       this.pluginConfig;
@@ -230,9 +181,7 @@ export class AbsPublisherPlugin
     }
 
     const sasOptions = {
-      services: AccountSASServices.parse('b').toString(),
-      resourceTypes: AccountSASResourceTypes.parse('co').toString(),
-      permissions: BlobSASPermissions.parse('r'),
+      permissions: ContainerSASPermissions.parse('r'),
       protocol: SASProtocol.Https,
       startsOn: new Date(),
       expiresOn: new Date(
@@ -242,19 +191,70 @@ export class AbsPublisherPlugin
     };
 
     if (useDefaultCredential) {
-      return generateBlobSASQueryParameters(
+      return `?${generateBlobSASQueryParameters(
         sasOptions,
         await this.blobServiceClient.getUserDelegationKey(
           sasOptions.startsOn,
           sasOptions.expiresOn
         ),
         accountName
-      ).toString();
+      )}`;
     }
 
-    return generateBlobSASQueryParameters(
+    return `?${generateBlobSASQueryParameters(
       sasOptions,
       this.createSharedKeyCredential()
-    ).toString();
+    )}`;
+  }
+  private createReportUrl(
+    indexFile: FileItem,
+    key: string,
+    sas?: string
+  ): string {
+    return (
+      indexFile &&
+      `${this.pluginConfig.url}/${
+        this.pluginConfig.containerName
+      }/${this.resolveInBucket(key)}/${indexFile.path}${sas ?? ''}`
+    );
+  }
+  private async addSasHelperScripts(
+    indexFile: FileItem,
+    key: string,
+    sas: string
+  ) {
+    const content = (await fs.readFile(indexFile.absPath)).toString();
+    const insertPos = content.indexOf('<body>') + '<body>'.length;
+    const additionalScript = `<script lang='text/javascript' src='./sasHelper.js${sas}'></script>`;
+    const modifiedContent =
+      content.slice(0, insertPos) + additionalScript + content.slice(insertPos);
+    this.logger.verbose(`Modified index.html:\n${modifiedContent}`);
+    const data = Buffer.from(modifiedContent);
+    await this.containerClient.uploadBlockBlob(
+      `${key}/${indexFile.path}`,
+      data,
+      data.length,
+      {
+        blobHTTPHeaders: {
+          blobContentType: indexFile.mimeType,
+        },
+      }
+    );
+    this.logger.verbose(`Updated ${key}/${indexFile.path}`);
+    for (const fileName of ['sasHelper.js', 'requestInterceptor.js']) {
+      const filePath = path.join(__dirname, 'helpers', 'sas', fileName);
+      const fileBuffer = await fs.readFile(filePath);
+      await this.containerClient.uploadBlockBlob(
+        `${key}/${fileName}`,
+        fileBuffer,
+        fileBuffer.length,
+        {
+          blobHTTPHeaders: {
+            blobContentType: 'text/javascript',
+          },
+        }
+      );
+      this.logger.verbose(`Uploaded from ${filePath} to ${key}/${fileName}`);
+    }
   }
 }
